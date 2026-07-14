@@ -313,6 +313,22 @@ static uint32_t       rx_seed_algo[rx_seed_cache_size]     = {0};
 static int            rx_active_cache_size                 = rx_seed_cache_size;
 static int            rx_next_cache_id                     = 0;
 
+// ==== full-dataset test patch ====
+#include <thread>
+#include <vector>
+#ifndef POW_FULL_DATASET
+#define POW_FULL_DATASET 1
+#endif
+#ifndef POW_VM_JIT
+#define POW_VM_JIT 1
+#endif
+#if POW_FULL_DATASET
+static randomx_dataset* rx_dataset[rx_seed_cache_size] = {nullptr};
+static uint8_t*         rx_dataset_mem[rx_seed_cache_size]  = {nullptr};
+static char             rx_dataset_path[rx_seed_cache_size][160] = {{0}};
+#endif
+// ==== end patch globals ====
+
 static std::mutex randomx_mutex;
 static std::mutex ethash_mutex;
 static std::mutex etchash_mutex;
@@ -323,6 +339,51 @@ struct InitCtx {
         for (int i = 0; i != rx_seed_cache_size; ++ i) memset(rx_seed_hash[i], 0xCC, sizeof(rx_seed_hash[0]));
     }
 } s;
+
+#if POW_FULL_DATASET
+#include <sys/mman.h>
+#include <sys/file.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <cstdio>
+// 每个 (algo,seed) 的 2GB dataset 放 /dev/shm,mmap(MAP_SHARED) 让所有 cluster worker 共享一份物理内存。
+// flock 协调:只有第一个 worker 构建,其它等 ready 后共享。
+static randomx_dataset* get_shared_dataset(int slot, randomx_cache* cache, const uint8_t* seed_hash, uint32_t algo) {
+    const size_t DS_SIZE = RANDOMX_DATASET_MAX_SIZE;
+    char hex[65];
+    for (int i = 0; i < 32; ++i) snprintf(hex + i*2, 3, "%02x", (unsigned)seed_hash[i]);
+    char path[160];
+    snprintf(path, sizeof(path), "/dev/shm/rx_ds_%u_%s", algo, hex);
+    int fd = open(path, O_RDWR | O_CREAT, 0600);
+    if (fd < 0) throw std::runtime_error("shm open failed");
+    flock(fd, LOCK_EX);
+    struct stat stt; fstat(fd, &stt);
+    bool need_build = ((size_t)stt.st_size < DS_SIZE + 1);
+    if (need_build && ftruncate(fd, DS_SIZE + 1) != 0) { flock(fd, LOCK_UN); close(fd); throw std::runtime_error("shm ftruncate failed"); }
+    uint8_t* mem = static_cast<uint8_t*>(mmap(nullptr, DS_SIZE + 1, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
+    if (mem == MAP_FAILED) { flock(fd, LOCK_UN); close(fd); throw std::runtime_error("shm mmap failed"); }
+    randomx_dataset* ds = randomx_create_dataset(mem);
+    if (ds == nullptr) { flock(fd, LOCK_UN); close(fd); throw std::runtime_error("create_dataset failed"); }
+    if (need_build || mem[DS_SIZE] != 1) {
+        const unsigned long total = randomx_dataset_item_count();
+        const unsigned nthreads = 8;
+        std::vector<std::thread> th;
+        for (unsigned t = 0; t < nthreads; ++t) {
+            const unsigned long st = total * t / nthreads;
+            const unsigned long cnt = (total * (t + 1) / nthreads) - st;
+            th.emplace_back([ds, cache, st, cnt]() { randomx_init_dataset(ds, cache, st, cnt); });
+        }
+        for (auto& x : th) x.join();
+        mem[DS_SIZE] = 1;
+    }
+    flock(fd, LOCK_UN);
+    close(fd);
+    rx_dataset_mem[slot] = mem;
+    snprintf(rx_dataset_path[slot], sizeof(rx_dataset_path[slot]), "%s", path);
+    return ds;
+}
+#endif
 
 void init_rx_unlocked(const uint8_t* seed_hash_data, xmrig::Algorithm::Id algo) {
     const int rxid = rx2id(algo);
@@ -388,12 +449,22 @@ void init_rx_unlocked(const uint8_t* seed_hash_data, xmrig::Algorithm::Id algo) 
         rx_seed_algo[new_rxid] = static_cast<uint32_t>(algo);
         memcpy(rx_seed_hash[new_rxid], seed_hash_data, sizeof(rx_seed_hash[0]));
         randomx_init_cache(rx_cache[new_rxid], rx_seed_hash[new_rxid], sizeof(rx_seed_hash[0]));
+#if POW_FULL_DATASET
+        if (rx_dataset[new_rxid] != nullptr) { randomx_release_dataset(rx_dataset[new_rxid]); rx_dataset[new_rxid] = nullptr; }
+        // LRU: seed 轮换时释放旧 slot 的共享内存 + unlink 旧 /dev/shm 文件,防止累积
+        if (rx_dataset_mem[new_rxid] != nullptr) {
+            munmap(rx_dataset_mem[new_rxid], RANDOMX_DATASET_MAX_SIZE + 1);
+            rx_dataset_mem[new_rxid] = nullptr;
+            if (rx_dataset_path[new_rxid][0]) { unlink(rx_dataset_path[new_rxid]); rx_dataset_path[new_rxid][0] = 0; }
+        }
+        rx_dataset[new_rxid] = get_shared_dataset(new_rxid, rx_cache[new_rxid], rx_seed_hash[new_rxid], static_cast<uint32_t>(algo));
+#endif
         found_rxid = new_rxid;
         ++rx_next_cache_id;
         if (rx_next_cache_id >= rx_active_cache_size) rx_next_cache_id = 0;
     }
 
-    const bool use_vm_jit = false;
+    const bool use_vm_jit = POW_VM_JIT;
     if (rx_vm[rxid] != nullptr &&
         (rx_vm_algo[rxid] != static_cast<uint32_t>(algo) || rx_vm_jit[rxid] != use_vm_jit)) {
         randomx_destroy_vm(rx_vm[rxid]);
@@ -406,10 +477,19 @@ void init_rx_unlocked(const uint8_t* seed_hash_data, xmrig::Algorithm::Id algo) 
         flags |= RANDOMX_FLAG_HARD_AES;
 #endif
         if (use_vm_jit) flags |= RANDOMX_FLAG_JIT;
+#if POW_FULL_DATASET
+        flags |= RANDOMX_FLAG_FULL_MEM;
+        rx_vm[rxid] = randomx_create_vm(static_cast<randomx_flags>(flags), nullptr, rx_dataset[found_rxid], mem.scratchpad(), 0);
+#else
         rx_vm[rxid] = randomx_create_vm(static_cast<randomx_flags>(flags), rx_cache[found_rxid], nullptr, mem.scratchpad(), 0);
+#endif
         if (rx_vm[rxid] == nullptr && use_vm_jit) {
             flags &= ~RANDOMX_FLAG_JIT;
+#if POW_FULL_DATASET
+            rx_vm[rxid] = randomx_create_vm(static_cast<randomx_flags>(flags), nullptr, rx_dataset[found_rxid], mem.scratchpad(), 0);
+#else
             rx_vm[rxid] = randomx_create_vm(static_cast<randomx_flags>(flags), rx_cache[found_rxid], nullptr, mem.scratchpad(), 0);
+#endif
             rx_vm_jit[rxid] = false;
         } else {
             rx_vm_jit[rxid] = use_vm_jit;
@@ -419,7 +499,11 @@ void init_rx_unlocked(const uint8_t* seed_hash_data, xmrig::Algorithm::Id algo) 
         }
         rx_vm_algo[rxid] = static_cast<uint32_t>(algo);
     } else {
+#if POW_FULL_DATASET
+        randomx_vm_set_dataset(rx_vm[rxid], rx_dataset[found_rxid]);
+#else
         randomx_vm_set_cache(rx_vm[rxid], rx_cache[found_rxid]);
+#endif
     }
 }
 
