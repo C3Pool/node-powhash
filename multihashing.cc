@@ -308,8 +308,13 @@ static int            rx_next_cache_id                     = 0;
 // ==== full-dataset test patch ====
 #include <thread>
 #include <vector>
+// C3Pool: default to LIGHT mode (dataset=nullptr, 256MB cache/seed) for pool-side
+// share verification. Combined with POW_VM_JIT=1 and the program_read_dataset_sshash_init.inc
+// fix, light+JIT is bit-for-bit correct, compute-bound (scales across cluster workers) and
+// needs no 2GB dataset / /dev/shm sharing. Full-dataset (=1) is single-core faster but
+// memory-bandwidth-bound across 12 workers -> ~1/10 the miner capacity on the same hardware.
 #ifndef POW_FULL_DATASET
-#define POW_FULL_DATASET 1
+#define POW_FULL_DATASET 0
 #endif
 #ifndef POW_VM_JIT
 #define POW_VM_JIT 1
