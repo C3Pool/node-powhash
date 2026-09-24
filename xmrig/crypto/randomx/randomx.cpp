@@ -281,6 +281,12 @@ RandomX_ConfigurationBase::RandomX_ConfigurationBase()
 		memcpy(codeReadDatasetV2Tweaked, a, b - a);
 		codeReadDatasetV2TweakedSize = b - a;
 	}
+	{
+		const uint8_t* a = addr(randomx_program_read_dataset_sshash_init);
+		const uint8_t* b = addr(randomx_program_read_dataset_sshash_fin);
+		memcpy(codeReadDatasetLightSshInitTweaked, a, b - a);
+		codeReadDatasetLightSshInitTweakedSize = b - a;
+	}
 	/* node-powhash local change end */
 	if (xmrig::Cpu::info()->hasBMI2()) {
 		const uint8_t* a = addr(randomx_prefetch_scratchpad_bmi2);
@@ -339,7 +345,11 @@ void RandomX_ConfigurationBase::Apply()
 	*(uint32_t*)(codeReadDatasetV2Tweaked + 24) = DatasetBaseMask;
 	*(uint32_t*)(codeReadDatasetTweaked + 7) = DatasetBaseMask;
 	*(uint32_t*)(codeReadDatasetTweaked + 23) = DatasetBaseMask;
-//	*(uint32_t*)(codeReadDatasetLightSshInitTweaked + 59) = DatasetBaseMask;
+	// Offset 62 is the imm32 of "and ebx, RANDOMX_DATASET_BASE_MASK" in
+	// program_read_dataset_sshash_init.inc as this fork spells it (verified by
+	// disassembly: template base +0x3e). The commented-out 59 above dated from
+	// upstream's instruction order and no longer applies.
+	*(uint32_t*)(codeReadDatasetLightSshInitTweaked + 62) = DatasetBaseMask;
 	/* node-powhash local change end */
 
 	const bool hasBMI2 = xmrig::Cpu::info()->hasBMI2();

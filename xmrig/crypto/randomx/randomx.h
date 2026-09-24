@@ -151,6 +151,16 @@ struct RandomX_ConfigurationBase
 	uint32_t codeReadDatasetTweakedSize;
 	uint8_t codeReadDatasetV2Tweaked[72];
 	uint32_t codeReadDatasetV2TweakedSize;
+	/* C3Pool: the light-mode (dataset==nullptr) program also masks with the
+	 * dataset base mask, but only the static snippet was ever emitted, so its
+	 * mask stayed at the rx/0 compile-time default. That is invisible while the
+	 * VM runs interpreted (upstream keeps JIT off) and while mining full-dataset,
+	 * but light+JIT verification then hashed every variant with a smaller dataset
+	 * (rx/2, DefyX/Panthera, rx/xeq) against the wrong mask. Keep a patchable
+	 * copy here, same as the two snippets above.
+	 */
+	uint8_t codeReadDatasetLightSshInitTweaked[128];
+	uint32_t codeReadDatasetLightSshInitTweakedSize;
 	/* node-powhash local change end */
 	uint8_t codeSshPrefetchTweaked[20];
 	uint8_t codePrefetchScratchpadTweaked[28];

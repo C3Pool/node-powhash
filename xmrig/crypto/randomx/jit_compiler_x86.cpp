@@ -378,7 +378,13 @@ namespace randomx {
 
 	void JitCompilerX86::generateProgramLight(Program& prog, ProgramConfiguration& pcfg, uint32_t datasetOffset) {
 		generateProgramPrologue(prog, pcfg);
-		emit(codeReadDatasetLightSshInit, readDatasetLightInitSize, code, codePos);
+		/* node-powhash local change start:
+		 * Emit the runtime-patched copy so the dataset mask matches the active
+		 * variant (see randomx.cpp Apply()). Emitting the static snippet here
+		 * hashed every smaller-dataset variant against rx/0's mask.
+		 */
+		emit(RandomX_CurrentConfig.codeReadDatasetLightSshInitTweaked, RandomX_CurrentConfig.codeReadDatasetLightSshInitTweakedSize, code, codePos);
+		/* node-powhash local change end */
 		*(uint32_t*)(code + codePos) = 0xc381;
 		codePos += 2;
 		emit32(datasetOffset / CacheLineSize, code, codePos);
