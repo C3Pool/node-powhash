@@ -62,6 +62,7 @@
                 "multihashing.cc",
                 "pearl_blake3.cc",
                 "pearl_verify.cc",
+                "qpow_poseidon2.cc",
                 "xmrig-override/backend/cpu/Cpu.cpp",
                 "c29b.cc",
                 "c29i.cc",

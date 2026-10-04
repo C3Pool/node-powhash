@@ -47,6 +47,7 @@ extern "C" {
 
 #include "c29.h"
 #include "pearl_verify.h"
+#include "qpow_poseidon2.h"
 
 void (*rx_blake2b_compress)(blake2b_state* S, const uint8_t * block) = rx_blake2b_compress_integer;
 int (*rx_blake2b)(void* out, size_t outlen, const void* in, size_t inlen) = rx_blake2b_default;
@@ -1262,6 +1263,25 @@ NAN_METHOD(etchash) {
 	info.GetReturnValue().Set(returnValue);
 }
 
+// Quantus (QTC) QPoW: Poseidon2.hash_squeeze_twice(mining_hash || nonce) as 64 bytes. The
+// caller reads it big-endian as a U512 and compares against U512::MAX / difficulty.
+NAN_METHOD(qpow) {
+    if (info.Length() != 2) return THROW_ERROR_EXCEPTION("qpow expects mining hash (32-byte Buffer) and nonce (64-byte Buffer)");
+
+    v8::Isolate* isolate = v8::Isolate::GetCurrent();
+    Local<Object> mining_hash;
+    Local<Object> nonce;
+    if (!RequireBufferArg(isolate, info[0], mining_hash)) return THROW_ERROR_EXCEPTION("Argument 1 should be a buffer object");
+    if (Buffer::Length(mining_hash) != 32) return THROW_ERROR_EXCEPTION("Argument 1 should be a 32-byte buffer object");
+    if (!RequireBufferArg(isolate, info[1], nonce)) return THROW_ERROR_EXCEPTION("Argument 2 should be a buffer object");
+    if (Buffer::Length(nonce) != 64) return THROW_ERROR_EXCEPTION("Argument 2 should be a 64-byte buffer object");
+
+    uint8_t output[64];
+    qpow_poseidon2::nonce_hash(reinterpret_cast<const uint8_t*>(Buffer::Data(mining_hash)),
+                               reinterpret_cast<const uint8_t*>(Buffer::Data(nonce)), output);
+    info.GetReturnValue().Set(Nan::CopyBuffer(reinterpret_cast<const char*>(output), 64).ToLocalChecked());
+}
+
 NAN_METHOD(pearl_v3) {
     if (info.Length() != 3) return THROW_ERROR_EXCEPTION(
         "pearl_v3 expects header (76-byte Buffer), proof (Buffer or base64 string), and a 32-byte target or false");
@@ -1376,6 +1396,7 @@ void init(v8::Local<v8::Object> exports, v8::Local<v8::Value>,
     SetExport(isolate, exports, "ethash", ethash);
     SetExport(isolate, exports, "etchash", etchash);
     SetExport(isolate, exports, "pearl_v3", pearl_v3);
+    SetExport(isolate, exports, "qpow", qpow);
 }
 
 NODE_MODULE_CONTEXT_AWARE(cryptonight, init)
