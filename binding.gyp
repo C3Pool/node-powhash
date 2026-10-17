@@ -1,7 +1,18 @@
 {
     "targets": [
         {
+            # NexaPow over the Bitcoin Cash secp256k1 fork vendored from the Nexa node. Its
+            # own target so secp256k1's generic header names (util.h, hash.h, field.h...)
+            # never resolve against xmrig's include path, or the other way round.
+            "target_name": "nexapow",
+            "type": "static_library",
+            "sources": [ "nexapow/nexapow.c" ],
+            "include_dirs": [ "nexapow/secp256k1/src", "nexapow/secp256k1" ],
+            "cflags_c": [ "-std=gnu11 -fPIC -DNDEBUG -O2 -w" ]
+        },
+        {
             "target_name": "node-powhash",
+            "dependencies": [ "nexapow" ],
              'conditions': [
                 ['OS=="mac"', {
                   'defines': [

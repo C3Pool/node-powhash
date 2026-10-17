@@ -1,7 +1,7 @@
 {
   "name": "node-powhash",
-  "version": "29.2.9",
-  "description": "Native Node.js addon for proof-of-work hashing algorithms used by mining pools and backend services, including CryptoNight, RandomX, KawPow, Ethash, Ghostrider, and Cuckaroo29.",
+  "version": "29.2.10",
+  "description": "Native Node.js addon for proof-of-work hashing algorithms used by mining pools and backend services, including CryptoNight, RandomX, KawPow, Ethash, Ghostrider, Cuckaroo29, and NexaPow.",
   "main": "index.js",
   "exports": {
     ".": "./index.js"
@@ -16,7 +16,8 @@
     "*.h",
     "c29/**",
     "xmrig/**",
-    "xmrig-override/**"
+    "xmrig-override/**",
+    "nexapow/**"
   ],
   "sideEffects": false,
   "author": "MoneroOcean contributors",
@@ -40,7 +41,7 @@
   "scripts": {
     "lint": "eslint .",
     "pretest": "npm run lint",
-    "test": "node --test --test-concurrency=1 --test-reporter=spec tests/stability.js tests/pearl_v3.js tests/pearl_v3_moe.js tests/pearl_v3_moe_one_leaf.js tests/qpow.js",
+    "test": "node --test --test-concurrency=1 --test-reporter=spec tests/stability.js tests/pearl_v3.js tests/pearl_v3_moe.js tests/pearl_v3_moe_one_leaf.js tests/qpow.js tests/nexapow.js",
     "test:perf": "node --test --test-concurrency=1 --test-reporter=spec tests/perf.js",
     "test:all": "node --test --test-concurrency=1 --test-reporter=spec tests/stability.js tests/pearl_v3.js tests/pearl_v3_moe.js tests/pearl_v3_moe_one_leaf.js tests/perf.js"
   },

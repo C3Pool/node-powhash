@@ -48,6 +48,7 @@ extern "C" {
 #include "c29.h"
 #include "pearl_verify.h"
 #include "qpow_poseidon2.h"
+#include "nexapow/nexapow.h"
 
 void (*rx_blake2b_compress)(blake2b_state* S, const uint8_t * block) = rx_blake2b_compress_integer;
 int (*rx_blake2b)(void* out, size_t outlen, const void* in, size_t inlen) = rx_blake2b_default;
@@ -1282,6 +1283,32 @@ NAN_METHOD(qpow) {
     info.GetReturnValue().Set(Nan::CopyBuffer(reinterpret_cast<const char*>(output), 64).ToLocalChecked());
 }
 
+// Nexa NexaPow: SHA256 of the Bitcoin Cash style Schnorr signature of SHA256(mining hash)
+// under the mining hash as secret key, where mining hash = SHA256d(commitment ||
+// len || nonce). The commitment is in raw byte order (the RPC prints it reversed).
+// Returns the 32-byte result, which the caller reads little-endian against the
+// target, or false when the mining hash is not a valid secret key (no solution).
+NAN_METHOD(nexapow) {
+    if (info.Length() != 2) return THROW_ERROR_EXCEPTION("nexapow expects header commitment (32-byte Buffer) and nonce (1-16 byte Buffer)");
+
+    v8::Isolate* isolate = v8::Isolate::GetCurrent();
+    Local<Object> commitment;
+    Local<Object> nonce;
+    if (!RequireBufferArg(isolate, info[0], commitment)) return THROW_ERROR_EXCEPTION("Argument 1 should be a buffer object");
+    if (Buffer::Length(commitment) != 32) return THROW_ERROR_EXCEPTION("Argument 1 should be a 32-byte buffer object");
+    if (!RequireBufferArg(isolate, info[1], nonce)) return THROW_ERROR_EXCEPTION("Argument 2 should be a buffer object");
+    const size_t nonceLength = Buffer::Length(nonce);
+    if (nonceLength == 0 || nonceLength > NEXAPOW_MAX_NONCE) return THROW_ERROR_EXCEPTION("Argument 2 should be a 1-16 byte buffer object");
+
+    uint8_t output[32];
+    if (!nexapow_hash(reinterpret_cast<const unsigned char*>(Buffer::Data(commitment)),
+                      reinterpret_cast<const unsigned char*>(Buffer::Data(nonce)), nonceLength, output)) {
+        info.GetReturnValue().Set(Nan::False());
+        return;
+    }
+    info.GetReturnValue().Set(Nan::CopyBuffer(reinterpret_cast<const char*>(output), 32).ToLocalChecked());
+}
+
 NAN_METHOD(pearl_v3) {
     if (info.Length() != 3) return THROW_ERROR_EXCEPTION(
         "pearl_v3 expects header (76-byte Buffer), proof (Buffer or base64 string), and a 32-byte target or false");
@@ -1362,6 +1389,10 @@ NAN_METHOD(pearl_v3) {
 void init(v8::Local<v8::Object> exports, v8::Local<v8::Value>,
           v8::Local<v8::Context> context, void*) {
     v8::Isolate* isolate = context->GetIsolate();
+    if (!nexapow_init()) {
+        isolate->ThrowException(v8::Exception::Error(v8::String::NewFromUtf8(isolate, "nexapow: secp256k1 context allocation failed").ToLocalChecked()));
+        return;
+    }
 #if defined(__x86_64__) || defined(_M_X64)
     const xmrig::ICpuInfo& cpuInfo = *xmrig::Cpu::info();
     if (cpuInfo.has(xmrig::ICpuInfo::FLAG_SSE41)) {
@@ -1397,6 +1428,7 @@ void init(v8::Local<v8::Object> exports, v8::Local<v8::Value>,
     SetExport(isolate, exports, "etchash", etchash);
     SetExport(isolate, exports, "pearl_v3", pearl_v3);
     SetExport(isolate, exports, "qpow", qpow);
+    SetExport(isolate, exports, "nexapow", nexapow);
 }
 
 NODE_MODULE_CONTEXT_AWARE(cryptonight, init)
