@@ -49,6 +49,9 @@ extern "C" {
 #include "pearl_verify.h"
 #include "qpow_poseidon2.h"
 #include "nexapow/nexapow.h"
+#ifdef HAVE_XELISHASH
+#include "xelishash/xelishash.h"
+#endif
 
 void (*rx_blake2b_compress)(blake2b_state* S, const uint8_t * block) = rx_blake2b_compress_integer;
 int (*rx_blake2b)(void* out, size_t outlen, const void* in, size_t inlen) = rx_blake2b_default;
@@ -1309,6 +1312,46 @@ NAN_METHOD(nexapow) {
     info.GetReturnValue().Set(Nan::CopyBuffer(reinterpret_cast<const char*>(output), 32).ToLocalChecked());
 }
 
+// XELIS xelis-hash v3 of a 112-byte MinerWork (header work hash | timestamp | nonce |
+// extra nonce | miner key). The caller reads the 32 bytes big-endian against
+// (2^256 - 1) / difficulty. x86-64 only (AES-NI and inline assembly).
+NAN_METHOD(xelishash_v3) {
+    if (info.Length() != 1) return THROW_ERROR_EXCEPTION("xelishash_v3 expects the miner work (112-byte Buffer)");
+#ifdef HAVE_XELISHASH
+    v8::Isolate* isolate = v8::Isolate::GetCurrent();
+    Local<Object> work;
+    if (!RequireBufferArg(isolate, info[0], work)) return THROW_ERROR_EXCEPTION("Argument 1 should be a buffer object");
+    if (Buffer::Length(work) != XELISHASH_INPUT_LEN) return THROW_ERROR_EXCEPTION("Argument 1 should be a 112-byte buffer object");
+
+    // 531 KiB of scratch per thread, allocated once and reused.
+    static thread_local uint64_t* scratch = nullptr;
+    if (scratch == nullptr) scratch = static_cast<uint64_t*>(aligned_alloc(64, XELISHASH_SCRATCH_WORDS * sizeof(uint64_t)));
+    if (scratch == nullptr) return THROW_ERROR_EXCEPTION("xelishash_v3: scratch allocation failed");
+    uint8_t input[XELISHASH_INPUT_LEN];
+    memcpy(input, Buffer::Data(work), XELISHASH_INPUT_LEN);
+    uint8_t output[32];
+    xelis_hash_v3(input, output, scratch);
+    info.GetReturnValue().Set(Nan::CopyBuffer(reinterpret_cast<const char*>(output), 32).ToLocalChecked());
+#else
+    return THROW_ERROR_EXCEPTION("xelishash_v3 is only available on x86-64");
+#endif
+}
+
+// BLAKE3-256; a XELIS block hash is BLAKE3 of the same 112-byte MinerWork.
+NAN_METHOD(blake3) {
+    if (info.Length() != 1) return THROW_ERROR_EXCEPTION("blake3 expects a Buffer");
+#ifdef HAVE_XELISHASH
+    v8::Isolate* isolate = v8::Isolate::GetCurrent();
+    Local<Object> input;
+    if (!RequireBufferArg(isolate, info[0], input)) return THROW_ERROR_EXCEPTION("Argument 1 should be a buffer object");
+    uint8_t output[32];
+    xelishash_blake3(reinterpret_cast<const uint8_t*>(Buffer::Data(input)), Buffer::Length(input), output);
+    info.GetReturnValue().Set(Nan::CopyBuffer(reinterpret_cast<const char*>(output), 32).ToLocalChecked());
+#else
+    return THROW_ERROR_EXCEPTION("blake3 is only available on x86-64");
+#endif
+}
+
 NAN_METHOD(pearl_v3) {
     if (info.Length() != 3) return THROW_ERROR_EXCEPTION(
         "pearl_v3 expects header (76-byte Buffer), proof (Buffer or base64 string), and a 32-byte target or false");
@@ -1429,6 +1472,8 @@ void init(v8::Local<v8::Object> exports, v8::Local<v8::Value>,
     SetExport(isolate, exports, "pearl_v3", pearl_v3);
     SetExport(isolate, exports, "qpow", qpow);
     SetExport(isolate, exports, "nexapow", nexapow);
+    SetExport(isolate, exports, "xelishash_v3", xelishash_v3);
+    SetExport(isolate, exports, "blake3", blake3);
 }
 
 NODE_MODULE_CONTEXT_AWARE(cryptonight, init)

@@ -1,4 +1,47 @@
 {
+    "conditions": [
+        # xelis-hash v3 needs AES-NI and x86-64 inline assembly, so it only exists on
+        # x86-64. BLAKE3 and ChaCha20 pick their SIMD variant at run time; each variant
+        # is built in its own target because it needs its own -m flag.
+        ['target_arch=="x64"', {
+            "targets": [
+                {
+                    "target_name": "xelishash_avx2",
+                    "type": "static_library",
+                    "sources": [ "xelishash/ChaCha20-SIMD/chacha20_avx2.c", "xelishash/BLAKE3/c/blake3_avx2.c" ],
+                    "defines": [ "BLAKE3_NO_AVX512" ],
+                    "cflags_c": [ "-std=gnu11 -fPIC -DNDEBUG -O3 -mavx2 -w" ]
+                },
+                {
+                    "target_name": "xelishash_sse41",
+                    "type": "static_library",
+                    "sources": [ "xelishash/BLAKE3/c/blake3_sse41.c" ],
+                    "defines": [ "BLAKE3_NO_AVX512" ],
+                    "cflags_c": [ "-std=gnu11 -fPIC -DNDEBUG -O3 -msse4.1 -w" ]
+                },
+                {
+                    "target_name": "xelishash",
+                    "type": "static_library",
+                    "dependencies": [ "xelishash_avx2", "xelishash_sse41" ],
+                    "sources": [
+                        "xelishash/xelis_hash_v3.c",
+                        "xelishash/xelishash_glue.c",
+                        "xelishash/ChaCha20-SIMD/chacha20.c",
+                        "xelishash/ChaCha20-SIMD/chacha20_dispatch.c",
+                        "xelishash/ChaCha20-SIMD/chacha20_sse2.c",
+                        "xelishash/ChaCha20-SIMD/cpu_features.c",
+                        "xelishash/BLAKE3/c/blake3.c",
+                        "xelishash/BLAKE3/c/blake3_dispatch.c",
+                        "xelishash/BLAKE3/c/blake3_portable.c",
+                        "xelishash/BLAKE3/c/blake3_sse2.c"
+                    ],
+                    "include_dirs": [ "xelishash" ],
+                    "defines": [ "BLAKE3_NO_AVX512" ],
+                    "cflags_c": [ "-std=gnu11 -fPIC -DNDEBUG -O3 -maes -msse2 -w" ]
+                }
+            ]
+        }]
+    ],
     "targets": [
         {
             # NexaPow over the Bitcoin Cash secp256k1 fork vendored from the Nexa node. Its
@@ -14,6 +57,10 @@
             "target_name": "node-powhash",
             "dependencies": [ "nexapow" ],
              'conditions': [
+                ['target_arch=="x64"', {
+                  'dependencies': [ 'xelishash' ],
+                  'defines': [ 'HAVE_XELISHASH' ]
+                }],
                 ['OS=="mac"', {
                   'defines': [
                     'XMRIG_OS_APPLE',
