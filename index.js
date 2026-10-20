@@ -17,7 +17,8 @@ const RANDOMX_ALGO_NAMES = new Map([
   ["rx/wow", 17],
   ["rx/keva", 19],
   ["rx/graft", 20],
-  ["rx/xeq", 22]
+  ["rx/xeq", 22],
+  ["rx/scash", "rx/scash"]
 ]);
 
 let randomxCacheSize = 5;

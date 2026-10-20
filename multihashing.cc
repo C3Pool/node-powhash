@@ -292,6 +292,8 @@ int rx2id(xmrig::Algorithm::Id algo) {
   switch (algo) {
       case xmrig::Algorithm::RX_0:     return 0;
       case xmrig::Algorithm::RX_V2:    return 1;
+      // Shares RX_V2's VM slot: each slot costs every worker a cache, and rx/2 is not live.
+      case xmrig::Algorithm::RX_SCASH: return 1;
       case xmrig::Algorithm::RX_ARQ:   return 2;
       case xmrig::Algorithm::RX_XLA:   return MAXRX-1;
       default: return 0;
@@ -415,6 +417,9 @@ void init_rx_unlocked(const uint8_t* seed_hash_data, xmrig::Algorithm::Id algo) 
             break;
         case xmrig::Algorithm::RX_KEVA:
             randomx_apply_config(RandomX_KevaConfig);
+            break;
+        case xmrig::Algorithm::RX_SCASH:
+            randomx_apply_config(RandomX_ScashConfig);
             break;
         case xmrig::Algorithm::RX_XLA:
             randomx_apply_config(RandomX_ScalaConfig);
@@ -654,6 +659,7 @@ NAN_METHOD(randomx) {
         if (info[2]->IsString()) {
             Nan::Utf8String algo_name(info[2]);
             if (strcmp(*algo_name, "rx/2") == 0) algo = -2;
+            else if (strcmp(*algo_name, "rx/scash") == 0) algo = -3;
             else return THROW_ERROR_EXCEPTION("Unsupported RandomX algo name");
         } else if (info[2]->IsNumber()) {
             if (!ReadIntArgument(info[2], "Argument 3 should be a finite integer or supported string", &algo)) return;
@@ -664,6 +670,7 @@ NAN_METHOD(randomx) {
     switch (algo) {
         case 0:  xalgo = xmrig::Algorithm::RX_0; break;
         case -2: xalgo = xmrig::Algorithm::RX_V2; break;
+        case -3: xalgo = xmrig::Algorithm::RX_SCASH; break;
         case 2:  xalgo = xmrig::Algorithm::RX_ARQ; break;
         case 1:
         case 3:  xalgo = xmrig::Algorithm::RX_XLA; break;
@@ -688,6 +695,21 @@ NAN_METHOD(randomx) {
 
     v8::Local<v8::Value> returnValue = Nan::CopyBuffer(output, 32).ToLocalChecked();
     info.GetReturnValue().Set(returnValue);
+}
+
+// RandomX commitment (RandomX >= 1.2): blake2b-256(input || hash). Satoshi Cash judges a
+// block by the commitment of its header (hashRandomX zeroed) and the header's RandomX hash.
+NAN_METHOD(randomx_commitment) {
+    if (info.Length() < 2) return THROW_ERROR_EXCEPTION("You must provide two arguments.");
+    v8::Isolate *isolate = v8::Isolate::GetCurrent();
+    Local<Object> input;
+    if (!RequireBufferArg(isolate, info[0], input)) return THROW_ERROR_EXCEPTION("Argument 1 should be a buffer object.");
+    Local<Object> hash;
+    if (!RequireBufferArg(isolate, info[1], hash)) return THROW_ERROR_EXCEPTION("Argument 2 should be a buffer object.");
+    if (Buffer::Length(hash) != 32) return THROW_ERROR_EXCEPTION("Argument 2 size should be 32 bytes.");
+    char output[32];
+    randomx_calculate_commitment(Buffer::Data(input), Buffer::Length(input), Buffer::Data(hash), output);
+    info.GetReturnValue().Set(Nan::CopyBuffer(output, 32).ToLocalChecked());
 }
 
 NAN_METHOD(setRandomxCacheSize) {
@@ -1451,6 +1473,7 @@ void init(v8::Local<v8::Object> exports, v8::Local<v8::Value>,
     SetExport(isolate, exports, "cryptonight_pico", cryptonight_pico);
     SetExport(isolate, exports, "randomx", randomx);
     SetExport(isolate, exports, "setRandomxCacheSize", setRandomxCacheSize);
+    SetExport(isolate, exports, "randomx_commitment", randomx_commitment);
     SetExport(isolate, exports, "argon2", argon2);
     SetExport(isolate, exports, "astrobwt", astrobwt);
     SetExport(isolate, exports, "k12", k12);

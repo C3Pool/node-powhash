@@ -155,6 +155,16 @@ RandomX_ConfigurationKeva::RandomX_ConfigurationKeva()
 }
 /* node-powhash local change end */
 
+/* node-powhash local change start:
+ * Satoshi Cash (SCASH): RandomX v1.2.1 with only the Argon2 salt changed
+ * (scash depends/patches/randomx/custom_configuration.patch).
+ */
+RandomX_ConfigurationScash::RandomX_ConfigurationScash()
+{
+	ArgonSalt = "RandomX-Scash\x01";
+}
+/* node-powhash local change end */
+
 RandomX_ConfigurationYada::RandomX_ConfigurationYada()
 {
 	ArgonSalt = "RandomXYadaCoin\x03";
@@ -508,6 +518,7 @@ RandomX_ConfigurationKeva RandomX_KevaConfig;
 RandomX_ConfigurationScala RandomX_ScalaConfig;
 /* node-powhash local change end */
 RandomX_ConfigurationYada RandomX_YadaConfig;
+RandomX_ConfigurationScash RandomX_ScashConfig;
 
 alignas(64) RandomX_ConfigurationBase RandomX_CurrentConfig;
 
