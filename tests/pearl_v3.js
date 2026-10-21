@@ -161,6 +161,14 @@ test("Pearl V3 fails closed on malformed and bounded inputs", () => {
   assert.equal(lowRankResult.valid, false);
   assert.equal(lowRankResult.candidate, false);
 
+  // Pearl v1.5.0 validates rank before any modulo/division.  Keep the zero
+  // case explicit because it must fail closed rather than reach k % rank.
+  const zeroRank = Buffer.from(proof);
+  zeroRank.writeBigUInt64LE(0n, 24);
+  const zeroRankResult = powhash.pearl_v3(header, zeroRank, winningTarget);
+  assert.equal(zeroRankResult.valid, false);
+  assert.equal(zeroRankResult.candidate, false);
+
   const oversized = powhash.pearl_v3(header, Buffer.alloc(8 * 1024 * 1024 + 1), winningTarget);
   assert.equal(oversized.valid, false);
   assert.equal(oversized.candidate, false);
